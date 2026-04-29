@@ -1,7 +1,4 @@
-const Groq = require('groq-sdk');
 const { initDb, getPool, upsertDailyLog } = require('./db');
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -47,21 +44,30 @@ Weight today: ${dailyLog.weight || 'not logged'} lbs
 Foods eaten: ${foodSummary}
     `.trim();
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are Bipran\'s strict Muay Thai fight camp coach. He fights May 30 in Indianapolis at 145lbs. He is currently 150lbs. Analyze his day and give specific, honest, direct feedback. Return ONLY a raw JSON object with no markdown, no code block, just JSON: { "overall_score": number (1-10), "protein_status": string, "sodium_status": string, "calorie_status": string, "what_went_well": string, "what_to_fix": string, "tomorrow_tip": string, "deficit_estimate": number, "message": string (motivational, max 20 words) }',
-        },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.3,
-      max_tokens: 1024,
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are Bipran\'s strict Muay Thai fight camp coach. He fights May 30 in Indianapolis at 145lbs. He is currently 150lbs. Analyze his day and give specific, honest, direct feedback. Return ONLY a raw JSON object with no markdown, no code block, just JSON: { "overall_score": number (1-10), "protein_status": string, "sodium_status": string, "calorie_status": string, "what_went_well": string, "what_to_fix": string, "tomorrow_tip": string, "deficit_estimate": number, "message": string (motivational, max 20 words) }',
+          },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 1024,
+      }),
     });
 
-    const raw = completion.choices[0].message.content.trim()
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'Groq API error');
+
+    const raw = data.choices[0].message.content.trim()
       .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
 
     const feedback = JSON.parse(raw);
